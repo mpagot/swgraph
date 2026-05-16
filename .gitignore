@@ -1,0 +1,22 @@
+# Build / render output
+out/
+
+# Development notes (not part of the project)
+ideas/
+
+# Editor and OS artifacts
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Node (transient, not used on host)
+node_modules/
+
+# Python
+__pycache__/
+*.pyc
+
+# Container build cache
+*.tar
