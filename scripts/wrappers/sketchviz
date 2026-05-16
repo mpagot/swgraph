@@ -1,0 +1,4 @@
+#!/bin/sh
+# sketchviz wrapper — invokes gpotter2's CLI clone of sketchviz.com.
+# Renders a Graphviz .dot file as a hand-drawn / sketchy SVG via roughjs.
+exec node /opt/sketchviz/src/sketch.js "$@"

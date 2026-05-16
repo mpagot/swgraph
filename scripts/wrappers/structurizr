@@ -1,0 +1,3 @@
+#!/bin/sh
+# Structurizr CLI wrapper — invokes the bundled launcher script.
+exec /opt/structurizr/structurizr.sh "$@"

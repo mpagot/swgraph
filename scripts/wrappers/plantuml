@@ -1,0 +1,4 @@
+#!/bin/sh
+# PlantUML wrapper — invokes the bundled jar.
+# All arguments are forwarded to PlantUML.
+exec java -Djava.awt.headless=true -jar /opt/plantuml.jar "$@"

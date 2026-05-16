@@ -1,0 +1,943 @@
+#!/usr/bin/env python3
+"""swgraph — render diagram source files to SVG + PNG.
+
+A containerized CLI tool that accepts diagram-as-code source files and
+produces rendered SVG and PNG artifacts.
+"""
+
+import argparse
+import base64
+import logging
+import re
+import subprocess
+import sys
+import tempfile
+from pathlib import Path
+
+__version__ = "0.1.0"
+
+# ---------------------------------------------------------------------------
+# Constants
+# ---------------------------------------------------------------------------
+
+XKCD_FONT_PATH = Path("/usr/share/fonts/xkcd/xkcd-script.ttf")
+MMDC_CONFIG = Path("/etc/mmdc.json")
+
+SUPPORTED_EXTENSIONS = {
+    ".gv": "graphviz",
+    ".dot": "graphviz",
+    ".puml": "plantuml",
+    ".plantuml": "plantuml",
+    ".d2": "d2",
+    ".ditaa": "ditaa",
+    ".mmd": "mermaid",
+    ".mermaid": "mermaid",
+    ".dsl": "structurizr",
+}
+
+PLANTUML_HANDWRITTEN_PRELUDE = """\
+!option handwritten true
+skinparam defaultFontName "xkcd Script"
+skinparam backgroundColor #fffff8
+skinparam shadowing false"""
+
+MERMAID_XKCD_INIT = '%%{init: {"look":"handDrawn","theme":"base","themeVariables":{"fontSize":"16px","background":"#fffff8","primaryColor":"#fffde7","primaryTextColor":"#1a1a1a","primaryBorderColor":"#1a1a1a","lineColor":"#1a1a1a","secondaryColor":"#cfe8cf","tertiaryColor":"#ffe0b2"},"flowchart":{"curve":"basis"}}}%%'
+
+# ---------------------------------------------------------------------------
+# Logging
+# ---------------------------------------------------------------------------
+
+log = logging.getLogger("swgraph")
+
+
+def setup_logging(quiet: bool = False, verbose: bool = False):
+    if quiet:
+        level = logging.WARNING
+    elif verbose:
+        level = logging.DEBUG
+    else:
+        level = logging.INFO
+    logging.basicConfig(
+        level=level,
+        format="[%(levelname).4s] %(message)s",
+        stream=sys.stderr,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Utilities
+# ---------------------------------------------------------------------------
+
+
+def run_tool(cmd: list[str], verbose: bool = False, **kwargs) -> subprocess.CompletedProcess:
+    """Run an external tool and return the result."""
+    log.debug("exec: %s", " ".join(str(c) for c in cmd))
+    try:
+        result = subprocess.run(
+            cmd,
+            capture_output=not verbose,
+            text=True,
+            **kwargs,
+        )
+    except FileNotFoundError:
+        log.error("tool not found: %s", cmd[0])
+        return subprocess.CompletedProcess(cmd, returncode=127, stdout="", stderr=f"tool not found: {cmd[0]}")
+    if result.returncode != 0 and not verbose:
+        if result.stderr:
+            log.debug("stderr: %s", result.stderr.strip())
+        if result.stdout:
+            log.debug("stdout: %s", result.stdout.strip())
+    return result
+
+
+def svg_to_png(svg_path: Path, png_path: Path) -> bool:
+    """Convert SVG to PNG using rsvg-convert."""
+    result = run_tool(["rsvg-convert", "-f", "png", "-o", str(png_path), str(svg_path)])
+    if result.returncode != 0:
+        log.warning("svg->png failed for %s: %s", svg_path.name, result.stderr.strip() if result.stderr else "unknown error")
+        return False
+    return True
+
+
+def embed_xkcd_font(svg_path: Path) -> bool:
+    """Embed the xkcd-script font as a base64 data URI into an SVG file.
+
+    Injects an @font-face rule so the SVG is self-contained and renders
+    correctly without external font files.
+    """
+    if not XKCD_FONT_PATH.exists():
+        log.warning("xkcd font not found at %s; skipping embed", XKCD_FONT_PATH)
+        return False
+
+    b64 = base64.b64encode(XKCD_FONT_PATH.read_bytes()).decode("ascii")
+    font_face = (
+        '@font-face { font-family: "xkcd Script"; '
+        f'src: url("data:font/ttf;base64,{b64}") format("truetype"); '
+        "font-display: block; }"
+    )
+
+    content = svg_path.read_text()
+
+    # Strategy: inject into existing <style>, or create a <defs><style> block
+    if "</style>" in content:
+        content = content.replace("</style>", font_face + "</style>", 1)
+    elif "<defs/>" in content:
+        content = content.replace(
+            "<defs/>",
+            f"<defs><style>{font_face}</style></defs>",
+            1,
+        )
+    elif "<defs>" in content:
+        content = content.replace(
+            "<defs>",
+            f"<defs><style>{font_face}</style>",
+            1,
+        )
+    else:
+        # Inject after opening <svg ...> tag
+        content = re.sub(
+            r"(<svg[^>]*>)",
+            rf"\1<defs><style>{font_face}</style></defs>",
+            content,
+            count=1,
+        )
+
+    svg_path.write_text(content)
+    return True
+
+
+def detect_graphviz_engine(src: Path) -> str:
+    """Parse a .gv/.dot file for a layout= directive. Returns engine name."""
+    try:
+        text = src.read_text()
+    except OSError:
+        return "dot"
+
+    # Match: layout=neato or layout="fdp" (with optional quotes/spaces)
+    m = re.search(r'\blayout\s*=\s*"?(\w+)"?', text)
+    if m:
+        engine = m.group(1)
+        valid = ("dot", "neato", "fdp", "circo", "twopi", "sfdp")
+        if engine in valid:
+            return engine
+        log.warning("unknown layout=%s in %s; falling back to dot", engine, src.name)
+    return "dot"
+
+
+# ---------------------------------------------------------------------------
+# Renderers
+# ---------------------------------------------------------------------------
+
+
+def render_graphviz(
+    src: Path,
+    output_dir: Path,
+    sketch: bool = False,
+    engine: str | None = None,
+    verbose: bool = False,
+) -> list[Path]:
+    """Render a Graphviz .gv/.dot file.
+
+    Args:
+        engine: Force a specific layout engine (dot/neato/fdp/circo/twopi/sfdp).
+                When None, the engine is auto-detected from source or defaults to dot.
+    """
+    stem = src.stem
+    outputs = []
+
+    if sketch:
+        # Use sketchviz (roughjs) for hand-drawn style
+        svg_out = output_dir / f"{stem}.svg"
+        result = run_tool(["sketchviz", str(src), str(svg_out)], verbose=verbose)
+        if result.returncode != 0:
+            log.error("sketchviz failed for %s", src.name)
+            return outputs
+
+        # Fix HTML entities that aren't valid in standalone SVG
+        content = svg_out.read_text()
+        replacements = {
+            "&nbsp;": "&#160;",
+            "&copy;": "&#169;",
+            "&reg;": "&#174;",
+            "&trade;": "&#8482;",
+            "&mdash;": "&#8212;",
+            "&ndash;": "&#8211;",
+            "&hellip;": "&#8230;",
+        }
+        for old, new in replacements.items():
+            content = content.replace(old, new)
+
+        # Replace all font-family values with xkcd Script
+        content = re.sub(r"font-family:\s*'[^']+'", "font-family: 'xkcd Script'", content)
+        content = re.sub(r'font-family:\s*"[^"]+"', 'font-family: "xkcd Script"', content)
+        content = re.sub(r'font-family="[^"]+"', 'font-family="xkcd Script"', content)
+        svg_out.write_text(content)
+
+        embed_xkcd_font(svg_out)
+        outputs.append(svg_out)
+    else:
+        # Use forced engine or auto-detect from source
+        effective_engine = engine if engine else detect_graphviz_engine(src)
+        svg_out = output_dir / f"{stem}.svg"
+
+        # Engine-specific flags
+        flags = []
+        if effective_engine not in ("dot", "circo"):
+            flags = ["-Goverlap=prism", "-Gsplines=true"]
+
+        cmd = [effective_engine] + flags + ["-Tsvg", str(src), "-o", str(svg_out)]
+        result = run_tool(cmd, verbose=verbose)
+        if result.returncode != 0:
+            log.error("graphviz/%s failed for %s", effective_engine, src.name)
+            return outputs
+        outputs.append(svg_out)
+
+    # SVG -> PNG
+    png_out = output_dir / f"{stem}.png"
+    if svg_out.exists() and svg_to_png(svg_out, png_out):
+        outputs.append(png_out)
+
+    return outputs
+
+
+def render_plantuml(src: Path, output_dir: Path, sketch: bool = False, verbose: bool = False) -> list[Path]:
+    """Render a PlantUML .puml/.plantuml file."""
+    stem = src.stem
+    outputs = []
+
+    if sketch:
+        # Create a temp copy with handwritten prelude injected
+        tmp_dir = Path(tempfile.mkdtemp())
+        tmp_file = tmp_dir / src.name
+        content = src.read_text()
+
+        # Inject prelude after @startuml, strip per-element FontName overrides
+        lines = content.splitlines(keepends=True)
+        new_lines = []
+        for line in lines:
+            if re.match(r"^\s*FontName\s", line):
+                continue
+            new_lines.append(line)
+            if line.strip().startswith("@startuml"):
+                new_lines.append(PLANTUML_HANDWRITTEN_PRELUDE + "\n")
+        tmp_file.write_text("".join(new_lines))
+        src_to_render = tmp_file
+    else:
+        src_to_render = src
+        tmp_dir = None
+
+    # PlantUML respects @startuml NAME for output filename, so render into
+    # a temp subdir to avoid naming collisions, then move results out.
+    render_dir = Path(tempfile.mkdtemp())
+    result = run_tool(
+        ["plantuml", "-tsvg", "-o", str(render_dir), str(src_to_render)],
+        verbose=verbose,
+    )
+
+    if result.returncode != 0:
+        log.error("plantuml failed for %s", src.name)
+        if tmp_dir:
+            _cleanup_dir(tmp_dir)
+        _cleanup_dir(render_dir)
+        return outputs
+
+    # Collect output SVGs (PlantUML may produce multiple from one file)
+    svg_files = list(render_dir.glob("*.svg"))
+    if not svg_files:
+        log.warning("plantuml produced no SVG output for %s", src.name)
+    else:
+        for svg in svg_files:
+            # If there's only one output, use the input stem for naming
+            if len(svg_files) == 1:
+                dest_svg = output_dir / f"{stem}.svg"
+            else:
+                dest_svg = output_dir / f"{stem}-{svg.stem}.svg"
+
+            dest_svg.write_bytes(svg.read_bytes())
+
+            if sketch:
+                embed_xkcd_font(dest_svg)
+
+            outputs.append(dest_svg)
+
+            # SVG -> PNG
+            dest_png = dest_svg.with_suffix(".png")
+            if svg_to_png(dest_svg, dest_png):
+                outputs.append(dest_png)
+
+    # Cleanup
+    if tmp_dir:
+        _cleanup_dir(tmp_dir)
+    _cleanup_dir(render_dir)
+
+    return outputs
+
+
+def render_d2(
+    src: Path,
+    output_dir: Path,
+    sketch: bool = False,
+    d2_theme: int | None = None,
+    d2_pad: int | None = None,
+    verbose: bool = False,
+) -> list[Path]:
+    """Render a d2 file."""
+    stem = src.stem
+    svg_out = output_dir / f"{stem}.svg"
+    outputs = []
+
+    cmd = ["d2"]
+    if sketch:
+        cmd += ["--sketch"]
+    if d2_theme is not None:
+        cmd += ["--theme", str(d2_theme)]
+    if d2_pad is not None:
+        cmd += ["--pad", str(d2_pad)]
+    cmd += [str(src), str(svg_out)]
+
+    result = run_tool(cmd, verbose=verbose)
+    if result.returncode != 0:
+        log.error("d2 failed for %s", src.name)
+        return outputs
+
+    outputs.append(svg_out)
+
+    # SVG -> PNG
+    png_out = output_dir / f"{stem}.png"
+    if svg_to_png(svg_out, png_out):
+        outputs.append(png_out)
+
+    return outputs
+
+
+def render_ditaa(src: Path, output_dir: Path, sketch: bool = False, verbose: bool = False) -> list[Path]:
+    """Render a ditaa file. Produces PNG only (ditaa has no SVG support)."""
+    stem = src.stem
+    png_out = output_dir / f"{stem}.png"
+    outputs = []
+
+    result = run_tool(
+        ["ditaa", str(src), str(png_out), "--no-shadows", "--round-corners"],
+        verbose=verbose,
+    )
+    if result.returncode != 0:
+        log.error("ditaa failed for %s", src.name)
+        return outputs
+
+    outputs.append(png_out)
+    return outputs
+
+
+def render_mermaid(
+    src: Path,
+    output_dir: Path,
+    sketch: bool = False,
+    backend: str = "mmdc",
+    verbose: bool = False,
+) -> list[Path]:
+    """Render a Mermaid .mmd/.mermaid file."""
+    stem = src.stem
+    svg_out = output_dir / f"{stem}.svg"
+    outputs = []
+
+    if sketch:
+        # Prepend the xkcd init directive to a temp copy
+        tmp_dir = Path(tempfile.mkdtemp())
+        tmp_file = tmp_dir / src.name
+        content = MERMAID_XKCD_INIT + "\n" + src.read_text()
+        tmp_file.write_text(content)
+        src_to_render = tmp_file
+    else:
+        src_to_render = src
+        tmp_dir = None
+
+    if backend == "mmdc":
+        cmd = ["mmdc", "-p", str(MMDC_CONFIG), "-i", str(src_to_render), "-o", str(svg_out)]
+        result = run_tool(cmd, verbose=verbose)
+        if result.returncode != 0:
+            log.error("mmdc failed for %s", src.name)
+            if tmp_dir:
+                _cleanup_dir(tmp_dir)
+            return outputs
+    elif backend == "isomorphic":
+        # Experimental: isomorphic-mermaid via Node.js (ESM-only module)
+        js_code = f"""
+import {{ renderMermaid }} from '/usr/local/lib/node_modules/isomorphic-mermaid/dist/main.js';
+import {{ readFileSync, writeFileSync }} from 'fs';
+const src = readFileSync('{src_to_render}', 'utf-8');
+try {{
+    const svg = await renderMermaid(src);
+    writeFileSync('{svg_out}', svg);
+}} catch (err) {{
+    console.error(err.message);
+    process.exit(1);
+}}
+"""
+        result = run_tool(["node", "--input-type=module", "-e", js_code], verbose=verbose)
+        if result.returncode != 0:
+            log.error("isomorphic-mermaid failed for %s", src.name)
+            if tmp_dir:
+                _cleanup_dir(tmp_dir)
+            return outputs
+    else:
+        log.error("unknown mermaid backend: %s", backend)
+        if tmp_dir:
+            _cleanup_dir(tmp_dir)
+        return outputs
+
+    if svg_out.exists():
+        outputs.append(svg_out)
+
+        # SVG -> PNG
+        png_out = output_dir / f"{stem}.png"
+        if svg_to_png(svg_out, png_out):
+            outputs.append(png_out)
+
+    if tmp_dir:
+        _cleanup_dir(tmp_dir)
+
+    return outputs
+
+
+def render_structurizr(src: Path, output_dir: Path, sketch: bool = False, verbose: bool = False) -> list[Path]:
+    """Render a Structurizr DSL file (exports to PlantUML, then renders each view)."""
+    stem = src.stem
+    outputs = []
+
+    # Export DSL to PlantUML views
+    tmp_dir = Path(tempfile.mkdtemp())
+    result = run_tool(
+        ["structurizr", "export", "-workspace", str(src), "-format", "plantuml", "-output", str(tmp_dir)],
+        verbose=verbose,
+    )
+    if result.returncode != 0:
+        log.error("structurizr export failed for %s", src.name)
+        _cleanup_dir(tmp_dir)
+        return outputs
+
+    # Render each generated .puml view
+    puml_files = list(tmp_dir.glob("*.puml"))
+    if not puml_files:
+        log.warning("structurizr produced no .puml views for %s", src.name)
+    else:
+        for puml in puml_files:
+            view_name = puml.stem
+            svg_out = output_dir / f"{stem}-{view_name}.svg"
+
+            # Render the .puml (reuse plantuml rendering logic)
+            render_dir = Path(tempfile.mkdtemp())
+
+            if sketch:
+                # Inject handwritten prelude
+                content = puml.read_text()
+                lines = content.splitlines(keepends=True)
+                new_lines = []
+                for line in lines:
+                    if re.match(r"^\s*FontName\s", line):
+                        continue
+                    new_lines.append(line)
+                    if line.strip().startswith("@startuml"):
+                        new_lines.append(PLANTUML_HANDWRITTEN_PRELUDE + "\n")
+                puml.write_text("".join(new_lines))
+
+            result = run_tool(
+                ["plantuml", "-tsvg", "-o", str(render_dir), str(puml)],
+                verbose=verbose,
+            )
+            if result.returncode != 0:
+                log.error("plantuml failed for structurizr view %s/%s", src.name, view_name)
+                _cleanup_dir(render_dir)
+                continue
+
+            # Move the output SVG
+            svg_files = list(render_dir.glob("*.svg"))
+            if svg_files:
+                svg_files[0].replace(svg_out) if svg_out.parent == render_dir.parent else svg_out.write_bytes(svg_files[0].read_bytes())
+
+                if sketch:
+                    embed_xkcd_font(svg_out)
+
+                outputs.append(svg_out)
+
+                # SVG -> PNG
+                png_out = svg_out.with_suffix(".png")
+                if svg_to_png(svg_out, png_out):
+                    outputs.append(png_out)
+
+            _cleanup_dir(render_dir)
+
+    _cleanup_dir(tmp_dir)
+    return outputs
+
+
+# ---------------------------------------------------------------------------
+# Dispatch
+# ---------------------------------------------------------------------------
+
+RENDERERS = {
+    "graphviz": render_graphviz,
+    "plantuml": render_plantuml,
+    "d2": render_d2,
+    "ditaa": render_ditaa,
+    "mermaid": render_mermaid,
+    "structurizr": render_structurizr,
+}
+
+
+def dispatch_file(
+    src: Path,
+    output_dir: Path,
+    sketch: bool = False,
+    engine: str | None = None,
+    d2_theme: int | None = None,
+    d2_pad: int | None = None,
+    mermaid_backend: str = "mmdc",
+    verbose: bool = False,
+) -> bool:
+    """Dispatch a single file to the appropriate renderer. Returns True on success."""
+    ext = src.suffix.lower()
+    tool = SUPPORTED_EXTENSIONS.get(ext)
+
+    if tool is None:
+        supported = ", ".join(sorted(SUPPORTED_EXTENSIONS.keys()))
+        log.error("unsupported extension '%s' for %s (supported: %s)", ext, src.name, supported)
+        return False
+
+    if not src.exists():
+        log.error("file not found: %s", src)
+        return False
+
+    renderer = RENDERERS[tool]
+    log.info("rendering %s via %s", src.name, tool)
+
+    # Build kwargs based on what the renderer accepts
+    kwargs = {"src": src, "output_dir": output_dir, "sketch": sketch, "verbose": verbose}
+    if tool == "mermaid":
+        kwargs["backend"] = mermaid_backend
+    if tool == "graphviz":
+        kwargs["engine"] = engine
+    if tool == "d2":
+        kwargs["d2_theme"] = d2_theme
+        kwargs["d2_pad"] = d2_pad
+
+    results = renderer(**kwargs)
+
+    if results:
+        for p in results:
+            log.info("  -> %s", p.name)
+        return True
+    else:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _cleanup_dir(path: Path):
+    """Remove a temporary directory and its contents."""
+    import shutil
+    try:
+        shutil.rmtree(path)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def cmd_render(args: argparse.Namespace) -> int:
+    """Execute the 'render' subcommand."""
+    output_dir = args.output
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    successes = 0
+    failures = 0
+
+    for file_path in args.files:
+        src = Path(file_path)
+        ok = dispatch_file(
+            src=src,
+            output_dir=output_dir,
+            sketch=args.sketch,
+            engine=args.engine,
+            d2_theme=args.d2_theme,
+            d2_pad=args.d2_pad,
+            mermaid_backend=args.mermaid_backend,
+            verbose=args.verbose,
+        )
+        if ok:
+            successes += 1
+        else:
+            failures += 1
+
+    # Summary
+    total = successes + failures
+    if total > 1:
+        log.info("--- summary: %d OK, %d FAILED (of %d) ---", successes, failures, total)
+
+    return 1 if failures > 0 else 0
+
+
+def cmd_verify(args: argparse.Namespace) -> int:
+    """Execute the 'verify' subcommand — check all bundled tools are working."""
+    import shutil
+    import tempfile
+
+    passed = 0
+    failed = 0
+
+    def report_ok(name: str, info: str):
+        nonlocal passed
+        print(f"[ \033[32mOK\033[0m ] {name:<22s} {info}")
+        passed += 1
+
+    def report_fail(name: str, info: str):
+        nonlocal failed
+        print(f"[\033[31mFAIL\033[0m] {name:<22s} {info}")
+        failed += 1
+
+    def check_cmd(name: str, cmd: list[str]):
+        """Run cmd, report OK if exit 0, FAIL otherwise."""
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode == 0:
+                out_line = (result.stdout or result.stderr or "").strip().splitlines()
+                report_ok(name, out_line[0] if out_line else "OK")
+            else:
+                out_line = (result.stderr or result.stdout or "").strip().splitlines()
+                report_fail(name, f"exit={result.returncode} {out_line[0] if out_line else ''}")
+        except FileNotFoundError:
+            report_fail(name, f"not found: {cmd[0]}")
+        except subprocess.TimeoutExpired:
+            report_fail(name, "timeout")
+
+    def check_file(name: str, path: str):
+        """Check a file/dir exists."""
+        if Path(path).exists():
+            report_ok(name, path)
+        else:
+            report_fail(name, f"missing: {path}")
+
+    print("=== swgraph tool verification ===")
+    print()
+
+    # --- Graphviz: six layout engines ---
+    for eng in ("dot", "neato", "fdp", "circo", "twopi", "sfdp"):
+        check_cmd(f"graphviz/{eng}", [eng, "-V"])
+
+    # --- Java-based diagram tools ---
+    check_cmd("plantuml", ["plantuml", "-version"])
+    check_cmd("ditaa", ["ditaa", "--help"])
+    check_cmd("structurizr", ["structurizr", "version"])
+
+    # --- Standalone binaries ---
+    check_cmd("d2", ["d2", "--version"])
+
+    # --- sketchviz (exits 1 on --help due to commander, but should print banner) ---
+    try:
+        result = subprocess.run(
+            ["sketchviz", "--help"], capture_output=True, text=True, timeout=15
+        )
+        combined = (result.stdout + result.stderr).lower()
+        if "sketchviz" in combined:
+            first_line = (result.stdout or result.stderr).strip().splitlines()
+            report_ok("sketchviz", first_line[0] if first_line else "help OK")
+        else:
+            report_fail("sketchviz", "no sketchviz banner in --help output")
+    except FileNotFoundError:
+        report_fail("sketchviz", "not found")
+    except subprocess.TimeoutExpired:
+        report_fail("sketchviz", "timeout")
+
+    # --- graph-easy (--version exits 2 by quirk; do a functional test) ---
+    try:
+        result = subprocess.run(
+            ["graph-easy", "--as=ascii"],
+            input="[ A ] -> [ B ]",
+            capture_output=True, text=True, timeout=15,
+        )
+        if result.stdout and "A" in result.stdout and "B" in result.stdout:
+            # Get version string too
+            ver_result = subprocess.run(
+                ["graph-easy", "--version"], capture_output=True, text=True, timeout=5
+            )
+            ver_line = (ver_result.stdout or ver_result.stderr or "").strip().splitlines()
+            report_ok("graph-easy", ver_line[0] if ver_line else "converts dot -> ascii")
+        else:
+            report_fail("graph-easy", f"functional test failed: {result.stderr.strip()}")
+    except FileNotFoundError:
+        report_fail("graph-easy", "not found")
+    except subprocess.TimeoutExpired:
+        report_fail("graph-easy", "timeout")
+
+    # --- Python ecosystem ---
+    check_cmd("python3", ["python3", "--version"])
+    check_cmd("uv", ["uv", "--version"])
+    check_cmd("cairosvg", ["python3", "-c", "import cairosvg; print('cairosvg', cairosvg.__version__)"])
+    check_cmd("asciidag", ["uvx", "--from", "asciidag", "python3", "-c", "import asciidag; print('asciidag OK')"])
+
+    # --- SVG / raster utilities ---
+    check_cmd("rsvg-convert", ["rsvg-convert", "--version"])
+    check_cmd("imagemagick", ["magick", "--version"])
+
+    # --- Terminal-ASCII tools ---
+    check_cmd("chafa", ["chafa", "--version"])
+    check_cmd("jp2a", ["jp2a", "--version"])
+
+    # --- Mermaid CLI (mmdc) version ---
+    try:
+        result = subprocess.run(
+            ["mmdc", "--version"], capture_output=True, text=True, timeout=15
+        )
+        ver = (result.stdout or result.stderr or "").strip()
+        if re.match(r"^\d+\.\d+", ver):
+            report_ok("mmdc", ver)
+        else:
+            report_fail("mmdc", f"version check failed: {ver}")
+    except FileNotFoundError:
+        report_fail("mmdc", "not found")
+    except subprocess.TimeoutExpired:
+        report_fail("mmdc", "timeout")
+
+    # --- mmdc functional test: render a trivial diagram ---
+    tmp_dir = Path(tempfile.mkdtemp())
+    try:
+        test_mmd = tmp_dir / "test.mmd"
+        test_svg = tmp_dir / "test.svg"
+        test_mmd.write_text("graph TD\n    A-->B\n")
+        result = subprocess.run(
+            ["mmdc", "-p", str(MMDC_CONFIG), "-i", str(test_mmd), "-o", str(test_svg)],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode == 0 and test_svg.exists() and test_svg.stat().st_size > 0:
+            report_ok("mmdc render", f"produced SVG ({test_svg.stat().st_size} bytes)")
+        else:
+            report_fail("mmdc render", "failed to render test diagram")
+    except FileNotFoundError:
+        report_fail("mmdc render", "mmdc not found")
+    except subprocess.TimeoutExpired:
+        report_fail("mmdc render", "timeout")
+    finally:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    # --- isomorphic-mermaid (experimental, ESM-only module) ---
+    try:
+        result = subprocess.run(
+            ["node", "--input-type=module", "-e",
+             'import("/usr/local/lib/node_modules/isomorphic-mermaid/dist/main.js")'
+             '.then(() => console.log("OK"))'
+             '.catch(e => { console.error(e.message); process.exit(1); })'],
+            capture_output=True, text=True, timeout=15,
+        )
+        if "OK" in (result.stdout or ""):
+            report_ok("isomorphic-mermaid", "module loads (ESM)")
+        else:
+            report_fail("isomorphic-mermaid", f"import failed: {(result.stderr or '').strip().splitlines()[0] if result.stderr else 'unknown'}")
+    except FileNotFoundError:
+        report_fail("isomorphic-mermaid", "node not found")
+    except subprocess.TimeoutExpired:
+        report_fail("isomorphic-mermaid", "timeout")
+
+    # --- Chromium (system browser for mmdc) ---
+    chromium_path = Path("/usr/bin/chromium-browser")
+    if chromium_path.exists() and chromium_path.stat().st_mode & 0o111:
+        try:
+            result = subprocess.run(
+                [str(chromium_path), "--version"], capture_output=True, text=True, timeout=10
+            )
+            ver = (result.stdout or result.stderr or "").strip().splitlines()
+            report_ok("chromium", ver[0] if ver else "found")
+        except (subprocess.TimeoutExpired, OSError):
+            report_ok("chromium", "binary exists (version check timed out)")
+    else:
+        report_fail("chromium", "/usr/bin/chromium-browser not found")
+
+    # --- mmdc puppeteer config ---
+    check_file("mmdc config", "/etc/mmdc.json")
+
+    # --- Fonts ---
+    try:
+        result = subprocess.run(
+            ["fc-list"], capture_output=True, text=True, timeout=10
+        )
+        xkcd_count = sum(1 for line in result.stdout.splitlines() if "xkcd" in line.lower())
+        if xkcd_count > 0:
+            report_ok("xkcd font", f"{xkcd_count} xkcd font(s) registered")
+        else:
+            report_fail("xkcd font", "no xkcd font found via fc-list")
+    except (FileNotFoundError, subprocess.TimeoutExpired):
+        report_fail("xkcd font", "fc-list failed")
+
+    # --- PlantUML stdlibs (vendored offline) ---
+    check_file("C4-PlantUML", "/opt/plantuml-stdlib/c4/C4_Container.puml")
+    check_file("AWS icons", "/opt/plantuml-stdlib/aws/dist/AWSCommon.puml")
+    check_file("Azure icons", "/opt/plantuml-stdlib/azure/dist/AzureCommon.puml")
+    check_file("GCP icons", "/opt/plantuml-stdlib/gcp")
+
+    # --- swgraph entrypoint itself ---
+    report_ok("swgraph", f"v{__version__}")
+
+    # --- Summary ---
+    print()
+    print("=== summary ===")
+    print(f"  passed: {passed}")
+    print(f"  failed: {failed}")
+
+    return 1 if failed > 0 else 0
+
+
+def cmd_version(args: argparse.Namespace) -> int:
+    """Print swgraph version."""
+    print(f"swgraph {__version__}")
+    return 0
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        prog="swgraph",
+        description="Render diagram source files to SVG + PNG.",
+    )
+    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+
+    # --- render ---
+    render_p = subparsers.add_parser(
+        "render",
+        help="Render one or more diagram files",
+        description="Render diagram source files to SVG and PNG artifacts.",
+    )
+    render_p.add_argument(
+        "files",
+        nargs="+",
+        help="Input file(s) to render",
+    )
+    render_p.add_argument(
+        "-o", "--output",
+        type=Path,
+        default=Path("/output"),
+        help="Output directory (default: /output)",
+    )
+    render_p.add_argument(
+        "--sketch",
+        action="store_true",
+        help="Enable hand-drawn/xkcd style where supported",
+    )
+    render_p.add_argument(
+        "--engine",
+        default=None,
+        choices=["dot", "neato", "fdp", "circo", "twopi", "sfdp"],
+        help="Force a specific Graphviz layout engine (overrides auto-detect from source)",
+    )
+    render_p.add_argument(
+        "--d2-theme",
+        type=int,
+        default=None,
+        metavar="N",
+        help="d2 theme ID (e.g., 4 for Cool Classics)",
+    )
+    render_p.add_argument(
+        "--d2-pad",
+        type=int,
+        default=None,
+        metavar="PX",
+        help="d2 diagram padding in pixels",
+    )
+    render_p.add_argument(
+        "--mermaid-backend",
+        default="mmdc",
+        choices=["mmdc", "isomorphic"],
+        help="Mermaid rendering backend (default: mmdc)",
+    )
+    render_p.add_argument(
+        "-q", "--quiet",
+        action="store_true",
+        help="Suppress informational messages",
+    )
+    render_p.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Show tool stdout/stderr",
+    )
+
+    # --- verify ---
+    subparsers.add_parser(
+        "verify",
+        help="Run tool verification (check all bundled tools)",
+    )
+
+    # --- version ---
+    subparsers.add_parser(
+        "version",
+        help="Print swgraph version",
+    )
+
+    args = parser.parse_args()
+
+    if args.command is None:
+        parser.print_help()
+        return 0
+
+    # Setup logging (render-specific flags)
+    quiet = getattr(args, "quiet", False)
+    verbose = getattr(args, "verbose", False)
+    setup_logging(quiet=quiet, verbose=verbose)
+
+    # Dispatch to subcommand
+    commands = {
+        "render": cmd_render,
+        "verify": cmd_verify,
+        "version": cmd_version,
+    }
+    handler = commands.get(args.command)
+    if handler:
+        return handler(args)
+    else:
+        parser.print_help()
+        return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

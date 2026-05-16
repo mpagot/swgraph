@@ -1,0 +1,4 @@
+#!/bin/sh
+# ditaa wrapper — invokes the bundled jar.
+# All arguments are forwarded to ditaa.
+exec java -Djava.awt.headless=true -jar /opt/ditaa.jar "$@"
