@@ -1,0 +1,139 @@
+---
+name: PR Validation
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+env:
+  IMAGE_NAME: swgraph
+  IMAGE_TAG: pr-${{ github.event.pull_request.number }}
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build container image
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          file: ./Containerfile
+          push: false
+          load: true
+          tags: ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Verify bundled tools
+        run: |
+          docker run --rm \
+            --memory 2g \
+            --cpus 2 \
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            swgraph verify
+
+      - name: Render all examples (default mode)
+        run: |
+          mkdir -p /tmp/swgraph-default
+          docker run --rm \
+            -v ${{ github.workspace }}/examples:/input:ro \
+            -v /tmp/swgraph-default:/output \
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            swgraph render \
+              /input/graphviz_minimal.gv \
+              /input/graphviz_module_deps.gv \
+              /input/graphviz_hub_and_spoke.gv \
+              /input/graphviz_state_machine.gv \
+              /input/graphviz_two_axis.gv \
+              /input/plantuml_sequence.puml \
+              /input/plantuml_c4_container.puml \
+              /input/plantuml_components.puml \
+              /input/plantuml_aws.puml \
+              /input/plantuml_ux_state_machine.puml \
+              /input/plantuml_xkcd_handwritten.puml \
+              /input/d2_architecture.d2 \
+              /input/d2_journey.d2 \
+              /input/ditaa_network.ditaa \
+              /input/mermaid_flowchart.mmd \
+              /input/mermaid_sequence.mmd \
+              /input/mermaid_c4.mmd \
+              /input/mermaid_journey.mmd \
+              /input/structurizr_workspace.dsl
+          echo "=== Default mode: rendered files ==="
+          ls -1 /tmp/swgraph-default/
+          FILE_COUNT=$(ls -1 /tmp/swgraph-default/ | wc -l)
+          echo "Total: $FILE_COUNT files"
+          test "$FILE_COUNT" -ge 30
+
+      - name: Render all examples (sketch mode)
+        run: |
+          mkdir -p /tmp/swgraph-sketch
+          docker run --rm \
+            -v ${{ github.workspace }}/examples:/input:ro \
+            -v /tmp/swgraph-sketch:/output \
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            swgraph render --sketch \
+              /input/graphviz_minimal.gv \
+              /input/graphviz_module_deps.gv \
+              /input/graphviz_hub_and_spoke.gv \
+              /input/graphviz_state_machine.gv \
+              /input/graphviz_two_axis.gv \
+              /input/plantuml_sequence.puml \
+              /input/plantuml_c4_container.puml \
+              /input/plantuml_components.puml \
+              /input/plantuml_aws.puml \
+              /input/plantuml_ux_state_machine.puml \
+              /input/plantuml_xkcd_handwritten.puml \
+              /input/d2_architecture.d2 \
+              /input/d2_journey.d2 \
+              /input/ditaa_network.ditaa \
+              /input/mermaid_flowchart.mmd \
+              /input/mermaid_sequence.mmd \
+              /input/mermaid_c4.mmd \
+              /input/mermaid_journey.mmd \
+              /input/structurizr_workspace.dsl
+          echo "=== Sketch mode: rendered files ==="
+          ls -1 /tmp/swgraph-sketch/
+          FILE_COUNT=$(ls -1 /tmp/swgraph-sketch/ | wc -l)
+          echo "Total: $FILE_COUNT files"
+          test "$FILE_COUNT" -ge 30
+
+      - name: Build demo gallery
+        run: |
+          mkdir -p /tmp/swgraph-gallery
+          docker run --rm \
+            -v ${{ github.workspace }}/examples:/input:ro \
+            -v /tmp/swgraph-gallery:/output \
+            -v ${{ github.workspace }}/scripts/render-batch.sh:/opt/swgraph/scripts/render-batch.sh:ro \
+            --entrypoint /bin/bash \
+            ${{ env.IMAGE_NAME }}:${{ env.IMAGE_TAG }} \
+            /opt/swgraph/scripts/render-batch.sh
+          echo "=== Gallery output ==="
+          ls -1 /tmp/swgraph-gallery/
+          test -f /tmp/swgraph-gallery/index.html
+          echo "Gallery index.html generated successfully"
+
+      - name: Upload gallery artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gallery
+          path: /tmp/swgraph-gallery/
+          retention-days: 7
+          if-no-files-found: ignore
