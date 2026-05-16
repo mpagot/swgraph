@@ -1,0 +1,35 @@
+@startuml plantuml_aws
+' AWS architecture using the vendored AWS-PlantUML icon set.
+' PLANTUML_INCLUDE_PATH includes /opt/plantuml-stdlib/aws/dist
+' so AWSCommon.puml + the per-service includes resolve directly.
+
+!include AWSCommon.puml
+!include Compute/EC2.puml
+!include Storage/SimpleStorageService.puml
+!include Database/RDS.puml
+!include NetworkingContentDelivery/CloudFront.puml
+!include NetworkingContentDelivery/Route53.puml
+!include NetworkingContentDelivery/ElasticLoadBalancing.puml
+
+title AWS — multi-tier web app
+
+actor "End user" as user
+
+CloudFront(cdn, "CloudFront", "CDN edge cache")
+Route53(dns, "Route 53", "DNS")
+ElasticLoadBalancing(alb, "ALB", "Application LB")
+EC2(web1, "Web Server", "EC2 (web tier)")
+EC2(web2, "Web Server", "EC2 (web tier)")
+RDS(db, "Postgres", "RDS Multi-AZ")
+SimpleStorageService(assets, "Assets", "S3 bucket")
+
+user --> dns
+dns --> cdn
+cdn --> alb
+alb --> web1
+alb --> web2
+web1 --> db
+web2 --> db
+web1 --> assets
+web2 --> assets
+@enduml

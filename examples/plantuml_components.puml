@@ -1,0 +1,70 @@
+@startuml myapp_components
+title myapp — acyclic tiered module dependency graph (UML component view)
+
+skinparam component {
+  BackgroundColor<<tier1>>    #C8E6C9
+  BackgroundColor<<tier2>>    #BBDEFB
+  BackgroundColor<<tier3>>    #FFCDD2
+  BackgroundColor<<facade>>   #FFE082
+  BackgroundColor<<entry>>    #CE93D8
+  BorderColor                 #555555
+  FontName                    Helvetica
+}
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+package "Tier 1 — Config & Auth (leaves, std only)" #E8F5E9 {
+  [config.zig]  <<tier1>>
+  [auth.zig]    <<tier1>>
+}
+
+package "Tier 2 — HTTP request layer" #E3F2FD {
+  [http_client.zig] <<tier2>>
+}
+
+package "Tier 3 — High-level workflows (subcommands)" #FFEBEE {
+  [archive.zig]  <<tier3>>
+  [monitor.zig]  <<tier3>>
+  [schedule.zig] <<tier3>>
+}
+
+package "Facade — public API re-export shim" #FFF3CD {
+  [root.zig] <<facade>>
+}
+
+package "Entry point" #F3E5F5 {
+  [main.zig] <<entry>>
+}
+
+' --- Tier 2 -> Tier 1 ---
+[http_client.zig] --> [config.zig]
+[http_client.zig] --> [auth.zig]
+
+' --- Tier 3 -> Tier 2 and Tier 1 (direct imports, no root.zig) ---
+[archive.zig]  --> [config.zig]      : @import
+[archive.zig]  --> [http_client.zig] : @import
+[monitor.zig]  --> [config.zig]      : @import
+[monitor.zig]  --> [http_client.zig] : @import
+[schedule.zig] --> [config.zig]      : @import
+[schedule.zig] --> [http_client.zig] : @import
+[schedule.zig] --> [monitor.zig]     #blue : sideways
+
+' --- Facade re-exports ---
+[root.zig] --> [config.zig]      : pub const
+[root.zig] --> [auth.zig]        : pub const
+[root.zig] --> [http_client.zig] : re-exports
+[root.zig] --> [archive.zig]     : re-exports
+[root.zig] --> [monitor.zig]     : re-exports
+[root.zig] --> [schedule.zig]    : re-exports
+
+' --- Entry point -> Facade ---
+[main.zig] --> [root.zig] : @import("myapp")
+
+note right of [root.zig]
+  Thin re-export shim only.
+  No logic lives here.
+  Internal modules never import root.zig.
+  All tests discovered (no cycles).
+end note
+
+@enduml

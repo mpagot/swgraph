@@ -1,0 +1,19 @@
+flowchart TB
+    Start([User opens app]) --> Auth{Authenticated?}
+    Auth -->|no| Login[Login screen]
+    Login --> SSO[SSO redirect]
+    SSO --> Auth
+    Auth -->|yes| Home[Home dashboard]
+    Home --> Pick{Pick action}
+    Pick -->|create| New[New document wizard]
+    Pick -->|browse| List[Document list]
+    Pick -->|search| Q[Search bar]
+    New --> Save[(Saved to DB)]
+    List --> Open[Open document]
+    Q --> Results[Search results]
+    Results --> Open
+    Open --> Edit[Edit + autosave]
+    Edit --> Save
+
+    style Save fill:#cfe8cf,stroke:#2e7d32
+    style Login fill:#ffe0b2,stroke:#ef6c00

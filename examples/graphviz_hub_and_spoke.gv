@@ -1,0 +1,36 @@
+// Hub-and-spoke architecture: an API gateway routing to many backend
+// services. This shape is what `twopi` is designed for — set `root=gateway`
+// so twopi knows which node is the centre. Other engines ignore `root`
+// and lay it out their own way:
+//   - dot     → tree, gateway at top
+//   - circo   → ring of services, gateway in or near the centre
+//   - neato/fdp → force-directed; gateway naturally drifts to the centre
+//   - sketchviz → whatever its underlying engine picks (typically dot)
+digraph hub_and_spoke {
+    graph [root=gateway, overlap=false, splines=true];
+    node [shape=box, style="rounded,filled", fillcolor="#e3f2fd"];
+    edge [color="#555", arrowsize=0.7];
+
+    gateway [label="API Gateway", shape=hexagon, fillcolor="#fff3cd",
+             penwidth=2];
+
+    auth          [label="Auth\nService"];
+    billing       [label="Billing\nService"];
+    catalog       [label="Catalog\nService"];
+    search        [label="Search\nService"];
+    recommend     [label="Recommendation\nService"];
+    notifications [label="Notifications\nService"];
+    profile       [label="User Profile\nService"];
+    inventory     [label="Inventory\nService"];
+    analytics     [label="Analytics\nService"];
+
+    gateway -> auth;
+    gateway -> billing;
+    gateway -> catalog;
+    gateway -> search;
+    gateway -> recommend;
+    gateway -> notifications;
+    gateway -> profile;
+    gateway -> inventory;
+    gateway -> analytics;
+}

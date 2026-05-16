@@ -1,0 +1,81 @@
+// Hierarchical layout (dot) — acyclic tiered module dependency graph
+digraph myapp {
+    rankdir=TB;
+    bgcolor="#ffffff";
+    node [shape=box, style="rounded,filled", fontname="Helvetica", fontsize=11];
+    edge [fontname="Helvetica", fontsize=9, color="#555555"];
+
+    // ---- Tier 1 — Config & Auth (leaves, std only) ----
+    subgraph cluster_tier1 {
+        label="Tier 1 — Config & Auth (leaves, std only)";
+        style="rounded,filled";
+        color="#cfe8cf";
+        fontname="Helvetica"; fontsize=11;
+        config [label="config.zig\n(std only)", fillcolor="#e8f5e9"];
+        auth   [label="auth.zig\n(std only)", fillcolor="#e8f5e9"];
+    }
+
+    // ---- Tier 2 — HTTP request layer ----
+    subgraph cluster_tier2 {
+        label="Tier 2 — HTTP request layer";
+        style="rounded,filled";
+        color="#bbdefb";
+        fontname="Helvetica"; fontsize=11;
+        http_client [label="http_client.zig\n(apiRequest, CallOptions,\nrawGet, RawGetOptions)", fillcolor="#e3f2fd"];
+    }
+
+    // ---- Tier 3 — High-level workflows (subcommands) ----
+    subgraph cluster_tier3 {
+        label="Tier 3 — High-level workflows (subcommands)";
+        style="rounded,filled";
+        color="#ffd2d2";
+        fontname="Helvetica"; fontsize=11;
+        archive  [label="archive.zig\n(runArchive)",  fillcolor="#ffcdd2"];
+        monitor  [label="monitor.zig\n(runMonitor, checkJobStatus)",  fillcolor="#ffcdd2"];
+        schedule [label="schedule.zig\n(runSchedule)", fillcolor="#ffcdd2"];
+    }
+
+    // ---- Facade — re-export shim ----
+    subgraph cluster_facade {
+        label="Facade — public API re-export shim";
+        style="rounded,filled";
+        color="#fff3cd";
+        fontname="Helvetica"; fontsize=11;
+        root [label="root.zig\n(thin re-exports only)", fillcolor="#ffe082"];
+    }
+
+    // ---- Entry point ----
+    subgraph cluster_entry {
+        label="Entry point";
+        style="rounded,filled";
+        color="#e1bee7";
+        fontname="Helvetica"; fontsize=11;
+        main [label="main.zig\n(CLI, arg parsing)", fillcolor="#ce93d8"];
+    }
+
+    // ---- Dependencies (all flow downward — no cycles) ----
+
+    // Tier 2 → Tier 1
+    http_client -> config;
+    http_client -> auth;
+
+    // Tier 3 → Tier 2 and Tier 1 (direct imports, no root.zig)
+    archive  -> config      [label="@import"];
+    archive  -> http_client [label="@import"];
+    monitor  -> config      [label="@import"];
+    monitor  -> http_client [label="@import"];
+    schedule -> config      [label="@import"];
+    schedule -> http_client [label="@import"];
+    schedule -> monitor     [color="#1976d2", style=dotted, label="sideways"];
+
+    // Facade → all internal modules (re-exports)
+    root -> config       [label="pub const"];
+    root -> auth         [label="pub const"];
+    root -> http_client  [label="re-exports"];
+    root -> archive      [label="re-exports"];
+    root -> monitor      [label="re-exports"];
+    root -> schedule     [label="re-exports"];
+
+    // Entry point → Facade
+    main -> root [label="@import(\"myapp\")", color="#7b1fa2", penwidth=2];
+}

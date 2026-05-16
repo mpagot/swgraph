@@ -1,0 +1,45 @@
+# d2 — Customer journey for first-time signup
+# Render with --sketch to get the XKCD-style hand-drawn variant.
+
+direction: down
+
+discover: "1. Discover product" {
+  shape: oval
+}
+
+landing: "2. Lands on marketing site"
+
+signup_form: "3. Opens signup form" {
+  shape: page
+}
+
+email_verify: "4. Verifies email" {
+  shape: cloud
+  label: "Email link\nclicked"
+}
+
+onboarding: "5. Onboarding wizard" {
+  step1: "Pick plan"
+  step2: "Invite team"
+  step3: "Tour features"
+}
+
+first_action: "6. First meaningful action" {
+  shape: hexagon
+  style.fill: "#fff7e0"
+}
+
+retention: "7. Returns next day" {
+  shape: cylinder
+  label: "Retention\ncohort"
+}
+
+discover -> landing -> signup_form -> email_verify -> onboarding.step1
+onboarding.step1 -> onboarding.step2 -> onboarding.step3
+onboarding.step3 -> first_action
+first_action -> retention: "key conversion"
+
+# Drop-off paths
+signup_form -> bounced: "abandons" { style.stroke-dash: 3 }
+email_verify -> bounced: "no click within 24h" { style.stroke-dash: 3 }
+bounced: "Drop-off" { shape: cloud; style.fill: "#ffe0e0" }

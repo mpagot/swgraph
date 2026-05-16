@@ -1,0 +1,45 @@
+@startuml plantuml_sequence
+title HTTP API request flow with retries
+
+actor User
+participant "CLI" as cli
+participant "HTTP Client" as http
+participant "Auth Cache" as cache
+database "API" as api
+
+User -> cli : run command
+activate cli
+
+cli -> cache : get token
+alt token cached
+    cache --> cli : token
+else token expired
+    cache -> api : POST /oauth/token
+    api --> cache : new token
+    cache --> cli : token
+end
+
+cli -> http : GET /resource
+activate http
+http -> api : GET /resource\n(Bearer token)
+
+alt 200 OK
+    api --> http : 200 + payload
+    http --> cli : data
+else 401 unauthorised
+    api --> http : 401
+    http -> cache : invalidate
+    http -> cache : refresh token
+    cache --> http : new token
+    http -> api : retry GET /resource
+    api --> http : 200 + payload
+    http --> cli : data
+else 5xx
+    api --> http : 503
+    http --> cli : error
+end
+deactivate http
+
+cli --> User : result
+deactivate cli
+@enduml

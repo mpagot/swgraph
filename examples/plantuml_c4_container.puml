@@ -1,0 +1,34 @@
+@startuml plantuml_c4_container
+' C4 model — Container view, using the bundled C4-PlantUML stdlib.
+' The image's PLANTUML_INCLUDE_PATH covers /opt/plantuml-stdlib/c4
+' so the !include resolves without any host network access.
+
+!include C4_Container.puml
+
+LAYOUT_WITH_LEGEND()
+
+title Container diagram for a typical web application
+
+Person(user, "User", "End user of the system")
+
+System_Boundary(c1, "Web Application") {
+    Container(web, "Web App", "JavaScript / SPA", "Delivers the UI")
+    Container(api, "API", "Python / FastAPI", "Business logic + REST endpoints")
+    ContainerDb(db, "Database", "PostgreSQL", "Stores users, content, audit log")
+    Container(worker, "Background Worker", "Python / Celery", "Async jobs (emails, exports)")
+    ContainerQueue(queue, "Job Queue", "Redis", "Decouples API from worker")
+}
+
+System_Ext(idp, "Identity Provider", "OIDC SSO")
+System_Ext(smtp, "SMTP Gateway", "Outbound email")
+
+Rel(user, web, "Uses", "HTTPS")
+Rel(web, api, "Calls", "JSON / HTTPS")
+Rel(api, db, "Reads / writes", "SQL")
+Rel(api, queue, "Enqueues jobs", "RESP")
+Rel(worker, queue, "Consumes", "RESP")
+Rel(worker, smtp, "Sends mail", "SMTP")
+Rel(api, idp, "Authenticates via", "OIDC")
+Rel(web, idp, "Redirects to", "OIDC")
+
+@enduml

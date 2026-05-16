@@ -1,0 +1,20 @@
+sequenceDiagram
+    autonumber
+    actor User
+    participant CLI
+    participant API
+    participant DB
+    participant Cache as Redis
+
+    User->>CLI: run query
+    CLI->>API: GET /items?q=foo
+    API->>Cache: lookup "foo"
+    alt cache hit
+        Cache-->>API: cached payload
+    else cache miss
+        API->>DB: SELECT * FROM items WHERE ...
+        DB-->>API: rows
+        API->>Cache: store "foo" (TTL 60s)
+    end
+    API-->>CLI: JSON payload
+    CLI-->>User: rendered table

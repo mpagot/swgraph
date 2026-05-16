@@ -1,0 +1,49 @@
+# d2 — multi-tier architecture (default theme)
+
+direction: right
+
+users: { shape: person; label: "Users" }
+
+cdn: "CDN" {
+  shape: cloud
+}
+
+lb: "Load Balancer"
+
+web: "Web tier" {
+  w1: "web-1"
+  w2: "web-2"
+  w3: "web-3"
+}
+
+api: "API tier" {
+  a1: "api-1"
+  a2: "api-2"
+}
+
+cache: "Cache" {
+  shape: cylinder
+  label: "Redis"
+}
+
+db: "Primary DB" {
+  shape: cylinder
+  label: "PostgreSQL"
+}
+
+queue: "Job Queue" {
+  shape: queue
+}
+
+worker: "Background Worker"
+
+users -> cdn -> lb
+lb -> web.w1
+lb -> web.w2
+lb -> web.w3
+web -> api
+api -> cache
+api -> db
+api -> queue
+queue -> worker
+worker -> db

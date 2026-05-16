@@ -1,0 +1,13 @@
+// Minimal dependency graph — useful for comparing the six Graphviz layout
+// engines (dot/neato/fdp/circo/twopi/sfdp) against an unstyled input.
+digraph minimal {
+    rankdir=LR;
+
+    cli      -> parser;
+    parser   -> validator;
+    parser   -> renderer;
+    validator -> errors;
+    renderer -> output;
+    renderer -> errors;
+    output   -> writer;
+}

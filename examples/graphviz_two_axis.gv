@@ -1,0 +1,87 @@
+// Diagram 2: Blocked Tab — Two-Axis Selection
+// Shows the Enter-key decision based on which axis is focused
+//
+// Render with: swgraph render graphviz_two_axis.gv
+
+digraph blocked_two_axis {
+    rankdir=TB;
+    fontname="Helvetica";
+    node [fontname="Helvetica", fontsize=11, style=filled];
+    edge [fontname="Helvetica", fontsize=9];
+
+    // ── States ──────────────────────────────────────────────────────
+
+    start [shape=circle, label="", width=0.3, fillcolor=black, color=black];
+
+    subgraph cluster_blocked {
+        label="Blocked Tab — Two-Axis Selection Model";
+        style=filled; fillcolor="#f5f5f5"; color="#616161";
+        fontsize=13; fontname="Helvetica Bold";
+
+        row_list [label="Row List\n(no row selected)",
+                  shape=box, fillcolor="#e3f2fd", color="#1565C0"];
+
+        row_focused [label="Row Focused\n(Down selected a row)\n\nIncident column active",
+                     shape=box, fillcolor="#bbdefb", color="#1565C0"];
+
+        group_focused [label="Job Group Result Focused\n(Right selected a group)\n\nJob-group cell active",
+                        shape=box, fillcolor="#90caf9", color="#0D47A1"];
+    }
+
+    // ── Decision diamond ────────────────────────────────────────────
+
+    decision [label="Enter\npressed", shape=diamond, fillcolor="#fff9c4",
+              color="#F57F17", fontsize=10];
+
+    // ── Destinations ────────────────────────────────────────────────
+
+    subgraph cluster_incident {
+        label=""; style=invis;
+        incident_tab [label="Incident Tab\n\nfilter: incident = N\nAND <config default>\n\nIncidentSelected message",
+                      shape=box, fillcolor="#fff3e0", color="#E65100",
+                      style="filled,bold", penwidth=2];
+    }
+
+    subgraph cluster_jobgroup {
+        label=""; style=invis;
+        jobgroup_tab [label="Job Group Tab\n\nfilter: group_id = G\nAND incident = N\nAND <config default>\n\nGroupSelected message",
+                      shape=box, fillcolor="#e8f5e9", color="#1B5E20",
+                      style="filled,bold", penwidth=2];
+    }
+
+    // ── Edges ───────────────────────────────────────────────────────
+
+    start -> row_list [label="Tab activates"];
+
+    row_list -> row_focused [label="Down\n(ListView.Selected)"];
+
+    row_focused -> group_focused [label="Right\nfirst group"];
+
+    group_focused -> group_focused [label="Right / Left\ncycle groups\n(wraps around)",
+                                    color="#0D47A1", fontcolor="#0D47A1"];
+
+    row_focused -> row_focused [label="Up / Down\nnew row\ngroup selection resets",
+                                color="#1565C0", fontcolor="#1565C0"];
+
+    group_focused -> row_focused [label="Up / Down\nnew row\ngroup selection resets",
+                                  style=dashed, color="#78909C"];
+
+    row_focused -> decision [label="Enter", penwidth=1.5];
+    group_focused -> decision [label="Enter", penwidth=1.5];
+
+    decision -> incident_tab [label="no group selected\n(on row)",
+                              color="#FF9800", fontcolor="#E65100",
+                              penwidth=2.0, style=bold];
+
+    decision -> jobgroup_tab [label="group selected",
+                              color="#4CAF50", fontcolor="#1B5E20",
+                              penwidth=2.0, style=bold];
+
+    // ── Annotations ─────────────────────────────────────────────────
+
+    note1 [label="Behavior:\nRow axis = incident identity\nCell axis = job group result\nEnter destination depends on\nwhich axis is active",
+           shape=note, fillcolor="#FFFDE7", color="#F9A825",
+           fontsize=9, fontname="Helvetica"];
+
+    note1 -> decision [style=dotted, color="#BDBDBD", arrowhead=none];
+}

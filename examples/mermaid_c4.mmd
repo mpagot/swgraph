@@ -1,0 +1,21 @@
+C4Context
+    title System context — internal project-management tool
+
+    Person(qa, "QA engineer", "Reviews tasks and approves milestones")
+    Person(dev, "Developer", "Submits patches")
+
+    System_Boundary(b1, "Project Management") {
+        System(rm, "Project Tracker", "Web app + CLI for tracking tasks,\nwork items, and project status")
+    }
+
+    System_Ext(openqa, "CI Platform", "Test orchestration & runner")
+    System_Ext(jira, "Issue Tracker", "Tickets and work items")
+    System_Ext(git, "Git Forge", "Source control & code review")
+    System_Ext(slack, "Slack", "Notifications")
+
+    Rel(qa, rm, "Reviews task groups, approves")
+    Rel(dev, rm, "Submits patches")
+    Rel(rm, openqa, "Pulls test results", "REST")
+    Rel(rm, jira, "Reads tickets", "REST")
+    Rel(rm, git, "Reads MR/PR status", "REST")
+    Rel(rm, slack, "Posts updates", "Webhook")

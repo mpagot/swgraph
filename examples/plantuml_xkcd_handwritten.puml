@@ -1,0 +1,32 @@
+@startuml plantuml_xkcd_handwritten
+' Same kind of sequence as plantuml_sequence.puml but rendered with the
+' "handwritten" skin and the xkcd Script font that ships in the image.
+' This is the XKCD-style mode for PlantUML.
+'
+' NOTE: handwritten is enabled via the preprocessor directive `!option`,
+' NOT the deprecated `skinparam handwritten true` (which embeds a warning
+' watermark in the rendered SVG in modern PlantUML).
+
+!option handwritten true
+skinparam defaultFontName "xkcd Script"
+skinparam backgroundColor #fffff8
+skinparam shadowing false
+
+title What happens when the build is broken
+
+actor Developer    as dev
+participant "CI"   as ci
+participant "Test\nSuite" as tests
+participant "Slack\nBot"  as bot
+
+dev -> ci   : push commit
+ci  -> tests: run
+tests --> ci: 1 failure
+ci  -> bot  : :rotating_light: build broken
+bot -> dev  : DM "did you mean it?"
+dev -> ci   : revert
+ci  -> tests: re-run
+tests --> ci: green
+ci  -> bot  : :tada: green again
+bot -> dev  : "phew"
+@enduml

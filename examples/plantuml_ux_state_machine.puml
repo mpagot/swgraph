@@ -1,0 +1,98 @@
+@startuml ux_full_drilldown
+' UX Journey 1: Full Drilldown
+' User triages a high-priority blocked item end-to-end.
+' Tool: PlantUML state machine — each state is a tab.
+'
+' Render with: swgraph render plantuml_ux_state_machine.puml
+
+skinparam backgroundColor #FEFEFE
+skinparam state {
+  BackgroundColor<<blocked>> #E3F2FD
+  BorderColor<<blocked>> #1565C0
+  BackgroundColor<<incident>> #FFF3E0
+  BorderColor<<incident>> #FF9800
+  BackgroundColor<<jobgroup>> #E8F5E9
+  BorderColor<<jobgroup>> #4CAF50
+  BackgroundColor<<jobdetail>> #F3E5F5
+  BorderColor<<jobdetail>> #9C27B0
+  FontSize 12
+  RoundCorner 15
+}
+skinparam note {
+  BackgroundColor #FFFDE7
+  BorderColor #F9A825
+  FontSize 10
+}
+skinparam arrow {
+  FontSize 11
+  Thickness 2
+}
+
+title Full Triage Drill-Down\n(Blocked → Incident → Job Group → Job Detail → Browser)
+
+[*] --> Blocked : App launches
+
+state "**Blocked Tab**" as Blocked <<blocked>> {
+  Blocked : Grid of blocked incidents
+  Blocked : Each row = one incident
+  Blocked : Cells = job group results (colored by status)
+  Blocked : --
+  Blocked : **Up/Down** — select incident row
+  Blocked : **Right/Left** — select job group result
+}
+
+state "**Incident Tab**" as Incident <<incident>> {
+  Incident : Incident metadata (number, packages, priority)
+  Incident : Review flags, EMU status, RR# (after enrichment)
+  Incident : Summary line: "15 passed, 2 failed, ..."
+  Incident : Job group results row (same as Blocked)
+  Incident : --
+  Incident : **Left/Right** — select a job group result
+}
+
+state "**Job Group Tab**" as JobGroup <<jobgroup>> {
+  JobGroup : Table of all jobs in one group
+  JobGroup : Columns: Result | Test | Flavor | Arch
+  JobGroup : --
+  JobGroup : **Up/Down** — select a job row
+  JobGroup : **/** — filter (e.g. status = failed)
+}
+
+state "**Job Detail Tab**" as JobDetail <<jobdetail>> {
+  JobDetail : Single job's full details
+  JobDetail : Settings, modules, remarks
+  JobDetail : --
+  JobDetail : **o** — open in browser
+}
+
+state "**Browser**" as Browser {
+  Browser : External system page
+  Browser : Full logs and details
+}
+
+Blocked -[#FF9800,bold]-> Incident : **Enter** on row\n(no group selected)
+Blocked -[#4CAF50,bold]-> JobGroup : **Enter** on\njob group result
+Incident -[#4CAF50,bold]-> JobGroup : **Enter** on\njob group result
+JobGroup -[#9C27B0,bold]-> JobDetail : **Enter** on\njob row
+JobDetail -[#00838F,bold]-> Browser : **o** key\n(xdg-open)
+
+Incident -[#90A4AE,dashed]-> Blocked : **b** key
+JobGroup -[#90A4AE,dashed]-> Blocked : **b** key
+JobDetail -[#90A4AE,dashed]-> JobGroup : **b** key
+
+note right of Blocked
+  **Typical flow:**
+  1. Spot a failing group (red cell) in a row
+  2. **Right** to select it, **Enter** to drill in
+  3. Or **Enter** on row to see incident overview first
+  4. Drill into failing job → open in browser
+  5. **b, b** back to Blocked → next row
+end note
+
+note bottom of Incident
+  Enrichment happens automatically
+  in the background (~200-500ms).
+  Basic data appears instantly.
+end note
+
+@enduml
