@@ -1,147 +1,166 @@
 # swgraph — Specification
 
-A small container image that renders software-architecture and software-design
-diagrams from text source files. Designed to be invoked from the command line
-or wired into an agentic LLM workflow.
+A containerized CLI tool that renders software-architecture and design
+diagrams from text source files into SVG and PNG artifacts.
 
 ## Who it's for
 
-- Engineers who want one place to render `.gv`, `.puml`, `.d2`, `.ditaa`,
+- **Engineers** who want one tool to render `.gv`, `.puml`, `.d2`, `.ditaa`,
   `.mmd`, and `.dsl` source without installing a dozen tools locally.
-- Agentic skills (LLM-driven loops) that produce diagram source and need a
-  fast, deterministic way to turn it into SVG/PNG and inspect the result.
+- **Agentic workflows** (LLM-driven loops) that produce diagram source and
+  need a deterministic way to turn it into image artifacts.
+- **CI pipelines** that generate documentation with embedded diagrams.
+
+## What it does
+
+You give it one or more diagram source files. It gives you back SVG and PNG
+files. That's it.
+
+```bash
+podman run --rm -v ./diagrams:/input -v ./out:/output swgraph render /input/*.puml
+```
 
 ## Runtime
 
-- Container engine: **Podman** (Containerfile preferred). The same file
-  also works with `docker build`.
-- Platform: **linux/amd64** only for now (the d2 binary download is
-  amd64-specific; multi-arch is a later enhancement).
+- **Container engine**: Podman (preferred) or Docker
+- **Base image**: Alpine Linux (multi-stage build)
+- **Platform**: linux/amd64 only (d2 binary is amd64-specific)
+- **Entrypoint**: `swgraph` CLI script (Python 3), managed by `tini`
 
-## Scope
+## CLI interface
 
-In-scope diagram families:
-- Dependency graphs (modules, packages, services)
-- User interaction / UX flow / customer story / journey
-- Feature description
-- UML structural (class, component, deployment, package, object)
-- UML behavioral (sequence, state, activity, use-case, timing)
-- C4 model (Context / Container / Component / Code)
-- Brownfield analysis: git-history DAG visualisation
+```
+swgraph render [OPTIONS] FILE [FILE...]
 
-Out of scope:
-- Data plotting (scatter, bar, pie, line) → no matplotlib
+Options:
+  -o, --output DIR        Output directory (default: /output)
+  --sketch                Enable hand-drawn/xkcd style where supported
+  --mermaid-backend CMD   'mmdc' (default) | 'isomorphic' (experimental)
+  -q, --quiet             Suppress informational messages
+  -v, --verbose           Show tool stdout/stderr
+  --help                  Show usage
 
-## What it accepts
+Other subcommands (convenience):
+  swgraph verify          Run tool verification (all bundled tools healthy?)
+  swgraph version         Print version of swgraph and all bundled tools
+```
 
-| Input extension | Tool used | What it represents |
-|---|---|---|
-| `.gv`, `.dot` | Graphviz (six layout engines) | Dependency / module / structural graphs |
-| `.puml`, `.plantuml` | PlantUML (+ bundled C4 / AWS / Azure / GCP / themes) | UML structural & behavioral, C4 |
-| `.mmd`, `.mermaid` | Mermaid (client-side via CDN) | Flowchart, sequence, state, class, ER, C4, journey, mindmap, timeline |
-| `.d2` | d2 | Modern arch diagrams, customer journey |
-| `.ditaa` | ditaa | ASCII-art → diagram (good for sketches) |
-| `.dsl` | Structurizr CLI | C4 model DSL (transpiled to PlantUML/Mermaid/d2) |
+## Supported input formats
 
-Plus a dedicated helper for git-history DAGs:
-- `swgraph asciidag-from-git --repo <path>` — brownfield analysis, no input file required.
-
-Out of scope: data plotting (scatter, bar, pie, line). Use a different tool.
+| Extension | Rendering tool | Output formats | Notes |
+|-----------|---------------|----------------|-------|
+| `.gv`, `.dot` | Graphviz | SVG + PNG | Layout engine auto-detected from `layout=X` in source; fallback: `dot` |
+| `.puml`, `.plantuml` | PlantUML (+ C4, AWS, Azure, GCP stdlibs) | SVG + PNG | `--sketch` injects handwritten mode + xkcd font |
+| `.d2` | d2 | SVG + PNG | `--sketch` uses d2's built-in sketch mode |
+| `.ditaa` | ditaa | **PNG only** | ditaa has no SVG output; this is not an error |
+| `.mmd`, `.mermaid` | Mermaid (mmdc) | SVG + PNG | Full server-side rendering via headless Chromium |
+| `.dsl` | Structurizr CLI -> PlantUML | SVG + PNG | All views in the workspace are rendered |
 
 ## What it produces
 
-Default output directory layout (mounted at `/output` in the container):
+For each input file, the tool produces artifacts in the output directory:
 
 ```
-output/
-├── index.html               # gallery: every input rendered, source side-by-side
-├── manifest.json            # machine-readable list of inputs → outputs
-├── graphviz/<name>.{dot,neato,fdp,circo,twopi,sfdp}.svg
-├── graphviz/<name>.txt      # ASCII version via graph-easy
-├── plantuml/<name>.svg
-├── d2/<name>.svg
-├── ditaa/<name>.png
-├── ditaa/<name>.ascii.txt   # chafa terminal preview
-├── mermaid/<name>.mmd       # copied; index.html renders client-side via CDN
-├── structurizr/<name>/      # one render per view defined in the DSL
-└── asciidag/<repo>.txt
+/output/
+  deps.svg                       # from deps.gv
+  deps.png
+  sequence.svg                   # from sequence.puml
+  sequence.png
+  architecture.svg               # from architecture.d2
+  architecture.png
+  network.png                    # from network.ditaa (PNG only)
+  flowchart.svg                  # from flowchart.mmd
+  flowchart.png
+  workspace-SystemContext.svg    # from workspace.dsl (one per view)
+  workspace-SystemContext.png
+  workspace-Container.svg
+  workspace-Container.png
 ```
 
-## How it's invoked
+**Output naming**: `<input-basename-without-extension>.<format>`
+Structurizr multi-view: `<input-basename>-<ViewName>.<format>`
 
-Three modes, same image:
+## Behaviors
 
-### Batch (default)
-Mount an input directory and an output directory, render everything found:
+- **Best-effort output**: Always produce both SVG and PNG. If a tool can
+  only produce one format (ditaa -> PNG), produce what it can without error.
+- **Continue on error**: If one file fails to render, log the error and
+  proceed to the next file. Exit non-zero at the end if any file failed.
+- **Extension-based dispatch**: The tool is selected by file extension.
+  Unrecognized extensions are rejected with a clear error message listing
+  supported formats.
+- **Graphviz engine auto-detection**: If the source contains a `layout=X`
+  directive, that engine is used. Otherwise defaults to `dot`.
+- **SVG to PNG conversion**: All SVG outputs are converted to PNG via
+  `rsvg-convert`. This is a second step after the tool produces SVG.
+- **Font embedding** (`--sketch`): When sketch mode is active, the xkcd
+  font is embedded as a base64 data URI inside each SVG so the file is
+  self-contained and renders correctly anywhere.
 
-```bash
-podman run --rm \
-  -v ./diagrams:/input \
-  -v ./out:/output \
-  swgraph
-```
+## Sketch / XKCD mode (`--sketch`)
 
-### Single file
-Render exactly one file. Output directory still mounted:
+An optional flag that enables each tool's native hand-drawn style:
 
-```bash
-podman run --rm \
-  -v ./diagrams:/input \
-  -v ./out:/output \
-  swgraph render diagrams/sequence.puml
-```
+| Tool | What `--sketch` does |
+|------|---------------------|
+| Graphviz | Renders via `sketchviz` (roughjs) instead of standard engine |
+| PlantUML | Injects `!option handwritten true` + sets font to "xkcd Script" |
+| d2 | Adds `--sketch` flag to d2 invocation |
+| Mermaid | Adds `%%{init: {"look":"handDrawn"}}%%` directive |
+| ditaa | No sketch mode available (ignored) |
+| Structurizr | PlantUML output rendered with handwritten mode |
 
-### Stdin → stdout
-Tightest agent loop, no volume mounts needed:
+## Mermaid rendering
 
-```bash
-echo '@startuml
-A -> B
-@enduml' | podman run --rm -i swgraph render --format plantuml --to svg
-```
+Two backends are bundled for evaluation:
 
-### Other subcommands
-- `swgraph serve` — start `python3 -m http.server 8080 --directory /output`
-- `swgraph asciidag-from-git --repo /repo [--limit N]` — git log → asciidag
-- `swgraph list-tools` — print the version of every bundled tool
-- `swgraph verify` — run the install-time tool verification script
+1. **mmdc** (default) -- `@mermaid-js/mermaid-cli` with headless Chromium.
+   Full diagram fidelity, supports all Mermaid diagram types. Uses
+   Alpine's system `chromium` package with `--no-sandbox`.
 
-### Optional flags
-- `--xkcd` — turn on each tool's native handwritten/sketch mode where
-  available (PlantUML `handwritten true`, d2 `--sketch`). Best-effort
-  styling, not a strict theme.
+2. **isomorphic-mermaid** (experimental) -- Pure Node.js rendering via
+   jsdom/svgdom. No browser required. Lighter, but may produce imprecise
+   layouts for complex diagrams. Select via `--mermaid-backend isomorphic`.
 
-## Tools intentionally omitted
+## Scope boundaries
 
-- **Inkscape** — replaced by `rsvg-convert` + `cairosvg` (saves ~500MB).
-- **Mermaid CLI / Chromium** — Mermaid renders client-side in the gallery
-  page via a CDN script (saves ~250MB). Use `swgraph serve` if your browser
-  blocks CDNs over `file://`.
+### In scope
 
-## Repo layout
+- Rendering diagram source files to SVG/PNG artifacts
+- Bundling all tools in a single self-contained image
+- Offline operation (PlantUML stdlibs vendored at build time)
+- Deterministic output (same input -> same output paths)
+- Best-effort hand-drawn styling via `--sketch`
 
-```
-swgraph/
-├── PLAN.md                  # development plan (phased)
-├── SPEC.md                  # this file
-├── TECH_STACK.md            # tool inventory (filled in Phase 2)
-├── Containerfile            # multi-stage Alpine build (Phase 3)
-├── Makefile                 # build / verify / render / serve / test
-├── README.md                # user-facing docs (Phase 5)
-├── examples/                # demo inputs (Phase 4)
-├── scripts/                 # renderers + helpers (Phase 5, plus wrappers in Phase 3)
-└── tests/                   # verify-tools.sh + smoke.sh
-```
+### Out of scope
+
+- **Data plotting** (scatter, bar, pie, line) -- use matplotlib/gnuplot
+- **Interactive/animated diagrams** -- output is static images only
+- **Theme system or palette enforcement** -- `--sketch` is the only styling knob
+- **Diagram authoring / validation / linting** -- this tool renders, not edits
+- **Multi-architecture images** -- linux/amd64 only for now
+- **Web UI / editor** -- this is a CLI tool, not a web app
+- **Stdin/stdout piping** -- files only (may be added later)
 
 ## Design constraints
 
-- **Smallest practical image.** Target ~430 MB. No GUI tools, no Chromium,
-  no JDK (JRE only).
-- **Offline by default.** PlantUML stdlibs (C4, AWS, Azure, GCP, themes)
-  are vendored at build time. Mermaid is the only runtime CDN dependency,
-  and only inside the gallery page.
-- **Deterministic outputs.** Same input → same output paths every time, so
-  an agent can reason about what was produced.
-- **Best-effort styling, not a project goal.** xkcd font is the default
-  where renderers accept one; `--xkcd` flag opts into native sketch modes;
-  no palette enforcement or theme system.
+- **Self-contained**: Everything needed to render is inside the image.
+  No network access required at runtime.
+- **Deterministic outputs**: Same input -> same output filenames, so
+  scripts and agents can predict what will be produced.
+- **No magic**: Extension determines the tool. No content sniffing.
+- **Fail gracefully**: Never crash on bad input. Log, skip, continue.
+
+## Image size budget
+
+| Component | Approximate size |
+|-----------|-----------------|
+| Alpine base + system libs | ~50 MB |
+| Java 17 JRE | ~170 MB |
+| Graphviz (custom build with GTS) | ~50 MB |
+| PlantUML + ditaa + Structurizr + stdlibs | ~80 MB |
+| d2 binary | ~30 MB |
+| Node.js + sketchviz + mmdc | ~100 MB |
+| Chromium | ~150 MB |
+| Fonts + misc tools | ~30 MB |
+| **Total estimate** | **~850-900 MB** |
