@@ -1,5 +1,7 @@
 # swgraph
 
+![swgraph](img/img2.jpg)
+
 Containerized software diagramming toolkit.
 
 swgraph is an all-in-one container image that renders diagram-as-code source
