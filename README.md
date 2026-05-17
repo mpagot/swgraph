@@ -1,5 +1,9 @@
 # swgraph
 
+[![Build and Publish](https://github.com/mpagot/swgraph/actions/workflows/publish.yml/badge.svg)](https://github.com/mpagot/swgraph/actions/workflows/publish.yml)
+[![Container Registry](https://img.shields.io/badge/ghcr.io-mpagot%2Fswgraph-blue?logo=github)](https://ghcr.io/mpagot/swgraph)
+[![Image Size](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/mpagot/swgraph/main/badges/image-size.json)](https://ghcr.io/mpagot/swgraph)
+
 ![swgraph](img/img2.jpg)
 
 Containerized software diagramming toolkit.

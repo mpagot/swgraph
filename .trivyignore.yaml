@@ -1,0 +1,96 @@
+# Trivy vulnerability suppressions for swgraph
+#
+# This file lists known vulnerabilities in bundled third-party binaries that
+# cannot be fixed without upstream releases. Each entry includes a risk
+# statement and an expiry date to force periodic re-review.
+#
+# swgraph is a local CLI tool that processes trusted input files — these
+# vulnerabilities (TLS cert validation, archive parsing, XML handling) are
+# not exploitable in this context.
+
+vulnerabilities:
+  # ditaa.jar — bundles Apache Batik 1.9 (no upstream update available)
+  - id: CVE-2022-42890
+    statement: "Information disclosure in Apache Batik bundled in ditaa.jar. Not exploitable: ditaa only processes trusted local .ditaa files."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2022-44729
+    statement: "Server-Side Request Forgery in Apache Batik bundled in ditaa.jar. Not exploitable: ditaa only processes trusted local .ditaa files."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2022-44730
+    statement: "Server-Side Request Forgery in Apache Batik bundled in ditaa.jar. Not exploitable: ditaa only processes trusted local .ditaa files."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  # ditaa.jar — bundles Clojure 1.9.0
+  - id: CVE-2024-22871
+    statement: "DoS via deeply nested s-expressions in Clojure bundled in ditaa.jar. Not exploitable: ditaa processes ASCII art, not Clojure code."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  # d2 binary — pre-built Go binary (compiled with Go 1.24.6).
+  # Fixes exist in newer Go versions but require upstream d2 to release
+  # a new build. Not exploitable: d2 renders local files, does not serve
+  # network traffic or process untrusted TLS/archive/URL input.
+  - id: CVE-2025-22871
+    statement: "Go net/http request smuggling. d2 does not serve HTTP."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2025-58183
+    statement: "Go archive/tar unbounded allocation. d2 does not parse tar archives."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2025-61726
+    statement: "Go net/url memory exhaustion in query params. d2 does not process untrusted URLs."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2025-61728
+    statement: "Go archive/zip excessive CPU. d2 does not process zip files."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2025-61729
+    statement: "Go crypto/x509 DoS via crafted certs. d2 does not validate external certificates."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2025-68121
+    statement: "Go crypto/tls certificate validation. d2 does not make outbound TLS connections during rendering."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-25679
+    statement: "Go net/url incorrect IPv6 parsing. d2 does not process untrusted URLs."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-32280
+    statement: "Go crypto/x509 DoS in certificate chain building. d2 does not validate external certificates."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-32281
+    statement: "Go crypto/x509 DoS via inefficient chain validation. d2 does not validate external certificates."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-32283
+    statement: "Go crypto/tls DoS via multiple TLS 1.3 keys. d2 does not serve TLS."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-33811
+    statement: "Go net CNAME buffer overflow with cgo resolver. d2 does not resolve DNS during rendering."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-33814
+    statement: "Go net/http2 infinite loop in SETTINGS frames. d2 does not serve HTTP/2."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-34986
+    statement: "Go stdlib vulnerability in d2 binary. Not exploitable in local rendering context."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-39820
+    statement: "Go net/mail ParseAddress DoS. d2 does not parse email addresses."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-39836
+    statement: "Go net Dial panic with NUL byte on Windows. swgraph runs on Linux."
+    expired_at: "2026-12-31T00:00:00Z"
+
+  - id: CVE-2026-42499
+    statement: "Go net/mail consumePhrase DoS. d2 does not parse email addresses."
+    expired_at: "2026-12-31T00:00:00Z"
