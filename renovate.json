@@ -1,0 +1,14 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended"],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": ["^Containerfile$"],
+      "matchStrings": ["ARG D2_VERSION=(?<currentValue>\\S+)"],
+      "datasourceTemplate": "github-releases",
+      "depNameTemplate": "terrastruct/d2",
+      "extractVersionTemplate": "^v(?<version>.+)$"
+    }
+  ]
+}
