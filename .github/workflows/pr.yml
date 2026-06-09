@@ -128,6 +128,7 @@ jobs:
           ls -1 /tmp/swgraph-gallery/
           test -f /tmp/swgraph-gallery/index.html
           echo "Gallery index.html generated successfully"
+          sudo chmod -R a+rX /tmp/swgraph-gallery
 
       - name: Upload gallery artifact
         if: always()

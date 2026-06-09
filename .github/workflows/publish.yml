@@ -97,6 +97,25 @@ jobs:
           trivyignores: '.trivyignore.yaml'
           format: 'table'
 
+      - name: Report suppressed CVEs (advisory)
+        if: always()
+        run: |
+          {
+            echo "## Currently suppressed CVEs"
+            echo ""
+            echo "Re-review this list when an entry's \`expired_at\` approaches or when upstream ships a fixed binary."
+            echo ""
+            echo '```'
+            trivy image \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --ignorefile .trivyignore.yaml \
+              --show-suppressed \
+              --format table \
+              ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest 2>&1 || true
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build and push container image
         uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
         with:
