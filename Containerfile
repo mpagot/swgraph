@@ -4,12 +4,12 @@
 # ---------------------------------------------------------------------------
 # Versions (bump in one place)
 # ---------------------------------------------------------------------------
-ARG ALPINE_VERSION=3.21
-ARG PLANTUML_VERSION=1.2026.3
+ARG ALPINE_VERSION=3.24
+ARG PLANTUML_VERSION=1.2026.6
 ARG DITAA_VERSION=0.11.0
 ARG D2_VERSION=0.7.1
 ARG STRUCTURIZR_VERSION=2025.11.09
-ARG GRAPHVIZ_VERSION=14.1.5
+ARG GRAPHVIZ_VERSION=15.0.0
 
 # ---------------------------------------------------------------------------
 # Stage 1 — downloader / builder
@@ -26,15 +26,18 @@ RUN apk add --no-cache \
         nodejs npm \
         build-base libjpeg-turbo-dev libpng-dev libwebp-dev libexif-dev autoconf automake
 
+RUN mkdir -p /out
 WORKDIR /out
 
 # PlantUML jar
-RUN curl -fsSL -o /out/plantuml.jar \
-      "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar"
+RUN curl -fsSL -o /tmp/plantuml.jar \
+      "https://github.com/plantuml/plantuml/releases/download/v${PLANTUML_VERSION}/plantuml-${PLANTUML_VERSION}.jar" \
+ && mv /tmp/plantuml.jar /out/plantuml.jar
 
 # ditaa jar
-RUN curl -fsSL -o /out/ditaa.jar \
-      "https://github.com/stathissideris/ditaa/releases/download/v${DITAA_VERSION}/ditaa-${DITAA_VERSION}-standalone.jar"
+RUN curl -fsSL -o /tmp/ditaa.jar \
+      "https://github.com/stathissideris/ditaa/releases/download/v${DITAA_VERSION}/ditaa-${DITAA_VERSION}-standalone.jar" \
+ && mv /tmp/ditaa.jar /out/ditaa.jar
 
 # d2 binary (linux/amd64, static)
 RUN curl -fsSL -o /tmp/d2.tar.gz \
@@ -77,10 +80,12 @@ RUN mkdir -p /out/plantuml-stdlib \
 
 # xkcd handwriting fonts
 RUN mkdir -p /out/fonts \
- && curl -fsSL -o /out/fonts/xkcd-script.ttf \
+ && curl -fsSL -o /tmp/xkcd-script.ttf \
       https://github.com/ipython/xkcd-font/raw/master/xkcd-script/font/xkcd-script.ttf \
- && curl -fsSL -o /out/fonts/xkcd.otf \
-      https://github.com/ipython/xkcd-font/raw/master/xkcd/build/xkcd.otf
+ && curl -fsSL -o /tmp/xkcd.otf \
+      https://github.com/ipython/xkcd-font/raw/master/xkcd/build/xkcd.otf \
+ && mv /tmp/xkcd-script.ttf /out/fonts/xkcd-script.ttf \
+ && mv /tmp/xkcd.otf /out/fonts/xkcd.otf
 
 # sketchviz — gpotter2's CLI clone of sketchviz.com (renders .dot as a
 # hand-drawn SVG via roughjs + jsdom). Not on npm registry (the npm package
