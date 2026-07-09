@@ -18,10 +18,6 @@ vulnerabilities:
     statement: "Server-Side Request Forgery in Apache Batik bundled in ditaa.jar. Not exploitable: ditaa only processes trusted local .ditaa files."
     expired_at: "2026-09-06T00:00:00Z"
 
-  - id: CVE-2022-44730
-    statement: "Server-Side Request Forgery in Apache Batik bundled in ditaa.jar. Not exploitable: ditaa only processes trusted local .ditaa files."
-    expired_at: "2026-09-06T00:00:00Z"
-
   # ditaa.jar — bundles Clojure 1.9.0
   - id: CVE-2024-22871
     statement: "DoS via deeply nested s-expressions in Clojure bundled in ditaa.jar. Not exploitable: ditaa processes ASCII art, not Clojure code."
@@ -31,20 +27,8 @@ vulnerabilities:
   # Fixes exist in newer Go versions but require upstream d2 to release
   # a new build. Not exploitable: d2 renders local files, does not serve
   # network traffic or process untrusted TLS/archive/URL input.
-  - id: CVE-2025-22871
-    statement: "Go net/http request smuggling. d2 does not serve HTTP."
-    expired_at: "2026-09-06T00:00:00Z"
-
-  - id: CVE-2025-58183
-    statement: "Go archive/tar unbounded allocation. d2 does not parse tar archives."
-    expired_at: "2026-09-06T00:00:00Z"
-
   - id: CVE-2025-61726
     statement: "Go net/url memory exhaustion in query params. d2 does not process untrusted URLs."
-    expired_at: "2026-09-06T00:00:00Z"
-
-  - id: CVE-2025-61728
-    statement: "Go archive/zip excessive CPU. d2 does not process zip files."
     expired_at: "2026-09-06T00:00:00Z"
 
   - id: CVE-2025-61729
@@ -93,4 +77,34 @@ vulnerabilities:
 
   - id: CVE-2026-42499
     statement: "Go net/mail consumePhrase DoS. d2 does not parse email addresses."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  # com.fasterxml.jackson.core:jackson-databind — bundled in structurizr-cli / ditaa
+  - id: CVE-2026-54512
+    statement: "Arbitrary code execution via PolymorphicTypeValidator bypass. Not exploitable: swgraph only runs with trusted local configuration and input."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: CVE-2026-54513
+    statement: "Security bypass allows arbitrary code execution. Not exploitable: swgraph only runs with trusted local configuration and input."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  # d2 binary (Go stdlib / net)
+  - id: CVE-2026-25681
+    statement: "Arbitrary code execution via XSS in HTML rendering. Not exploitable: d2 is used locally to render diagram SVGs."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: CVE-2026-27136
+    statement: "XSS via HTML parsing bypass. Not exploitable: d2 is used locally to render diagram SVGs."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: CVE-2026-27145
+    statement: "Denial of Service via excessive processing of DNS in crypto/x509. Not exploitable: d2 does not validate external certificates."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: CVE-2026-39821
+    statement: "Privilege escalation via Punycode label processing. Not exploitable: d2 is used locally and does not perform network privilege checks."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: CVE-2026-42504
+    statement: "MIME header invalid encoding DoS in Go stdlib. Not exploitable: d2 processes diagram source, not email MIME headers."
     expired_at: "2026-09-06T00:00:00Z"
