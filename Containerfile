@@ -21,7 +21,8 @@ ARG DITAA_VERSION
 ARG D2_VERSION
 ARG STRUCTURIZR_VERSION
 
-RUN apk add --no-cache \
+RUN apk upgrade --no-cache \
+ && apk add --no-cache \
         curl tar unzip git \
         nodejs npm \
         build-base libjpeg-turbo-dev libpng-dev libwebp-dev libexif-dev autoconf automake
@@ -118,7 +119,8 @@ ARG GRAPHVIZ_VERSION
 # GTS (the GNU Triangulated Surface library) is NOT packaged in Alpine, so
 # graphviz's sfdp + prism overlap features need it built from source first.
 # We install it to /opt/graphviz so a single COPY in stage 3 brings both.
-RUN apk add --no-cache \
+RUN apk upgrade --no-cache \
+ && apk add --no-cache \
         curl git \
         autoconf automake libtool bison flex m4 pkgconf \
         build-base python3 \
@@ -176,7 +178,8 @@ LABEL org.opencontainers.image.source="local"
 # from-source build in /opt/graphviz/ (see graphviz-builder stage) for
 # sfdp + prism overlap support. The runtime libs that build dynamically
 # links against (gts, cairo, pango, gd, librsvg) are still apk packages.
-RUN apk add --no-cache \
+RUN apk upgrade --no-cache \
+ && apk add --no-cache \
         bash tini \
         fontconfig font-dejavu \
         glib cairo pango gd librsvg \

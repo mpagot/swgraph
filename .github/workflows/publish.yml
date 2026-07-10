@@ -61,8 +61,8 @@ jobs:
           load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-to: type=gha,mode=max
-          cache-from: type=gha
+          cache-to: ${{ github.event_name == 'schedule' && '' || 'type=gha,mode=max' }}
+          cache-from: ${{ github.event_name == 'schedule' && '' || 'type=gha' }}
 
       - name: Verify bundled tools
         run: |
@@ -124,7 +124,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
+          cache-from: ${{ github.event_name == 'schedule' && '' || 'type=gha' }}
           provenance: false
 
       - name: Verify published image pulls cleanly
