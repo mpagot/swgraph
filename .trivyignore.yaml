@@ -79,9 +79,29 @@ vulnerabilities:
     statement: "Go net/mail consumePhrase DoS. d2 does not parse email addresses."
     expired_at: "2026-09-06T00:00:00Z"
 
+  - id: CVE-2026-46602
+    statement: "Go x/image TIFF decoder infinite loop. d2 renders local files."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: CVE-2026-46604
+    statement: "Go x/image TIFF decoder panic. d2 renders local files."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: CVE-2026-56852
+    statement: "Go x/text norm.Iter infinite loop. d2 renders local files."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: CVE-2026-39822
+    statement: "Go os.Root symlink directory traversal. d2 does not use os.Root."
+    expired_at: "2026-09-06T00:00:00Z"
+
   # com.fasterxml.jackson.core:jackson-databind — bundled in structurizr-cli / ditaa
   - id: CVE-2026-54512
     statement: "Arbitrary code execution via PolymorphicTypeValidator bypass. Not exploitable: swgraph only runs with trusted local configuration and input."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: GHSA-r7wm-3cxj-wff9
+    statement: "jackson-core maxNumberLength bypass via chunked digit accumulation. Not exploitable: swgraph only runs with trusted local configuration and input."
     expired_at: "2026-09-06T00:00:00Z"
 
   - id: CVE-2026-54513
