@@ -108,6 +108,15 @@ vulnerabilities:
     statement: "Security bypass allows arbitrary code execution. Not exploitable: swgraph only runs with trusted local configuration and input."
     expired_at: "2026-09-06T00:00:00Z"
 
+  # openjdk17-jre — installed from Alpine repositories
+  - id: CVE-2026-41254
+    statement: "Little CMS Information disclosure/DoS in openjdk17-jre. Not exploitable: swgraph does not process external images or profiles via Little CMS."
+    expired_at: "2026-09-06T00:00:00Z"
+
+  - id: CVE-2026-47063
+    statement: "OpenJDK Jar handling vulnerability in openjdk17-jre. Not exploitable: swgraph only loads known, trusted bundled JARs (PlantUML, ditaa, structurizr)."
+    expired_at: "2026-09-06T00:00:00Z"
+
   # d2 binary (Go stdlib / net)
   - id: CVE-2026-25681
     statement: "Arbitrary code execution via XSS in HTML rendering. Not exploitable: d2 is used locally to render diagram SVGs."
